@@ -1,7 +1,12 @@
 #include <Bounce.h>
 #include <SD.h>
-#include <SPI.h>
+#include <SPI.h> 
 #include "DHT.h"
+#include "Adafruit_BLE_UART.h"
+
+
+
+#define LED_PIN 33
 
 // MICRO SD
 const int chipSelect = BUILTIN_SDCARD;
@@ -32,16 +37,27 @@ int bufPos = 0;
 unsigned long lastBlink = 0;
 bool ledOn = false;
 
-unsigned long lastLogTime = 0;
+unsigned long lastMessageTime = 0;
 
+// BLE STUFF
+#define ADAFRUITBLE_REQ 10
+#define ADAFRUITBLE_RDY 32
+#define ADAFRUITBLE_RST 9
+
+Adafruit_BLE_UART uart = Adafruit_BLE_UART(ADAFRUITBLE_REQ, ADAFRUITBLE_RDY, ADAFRUITBLE_RST);
+
+#define CMD_BUF_LEN 64
+uint8_t cmdBufPos = 0;
+char cmdBuffer[CMD_BUF_LEN] = {0};
+
+float altitude = 1.6;
+int measureState = -1;
+/******************************************************************************* */
 void setup()
 {
 
-  Serial.begin(57600);
-  Serial.println("Hello, I am the sensor clubhouse. I live in a balloon.");
-
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
 
   // WEATHER
   dht.begin();
@@ -67,37 +83,194 @@ void setup()
   {
     volBuffer[i] = 0;
   }
+
+ // BLE Initializing
+  uart.setDeviceName("BBLEBOY"); /* 7 characters max! */
+  uart.begin();
+
+  //while(!Serial);
+  Serial.begin(57600);
+  Serial.println("Hello, I am the sensor clubhouse. I live in a balloon.");
+ 
 }
 
 void loop()
 {
+  uart.pollACI();
 
+  // read from BLE buffer
+
+// OK while we still have something to read, get a character and print it out
+    while (uart.available()) {
+      char c = uart.read();
+      Serial.print(c);
+         addToCMDBuffer(c);
+    }
+
+  //measuringBlink();
+  sensorLoop();
+
+  // keep alive messages
+  unsigned long now = millis();
+  if (now > lastMessageTime + 1000)
+  {
+    lastMessageTime = now;
+    Serial.print(now/1000);
+    Serial.println(" waiting... ");
+    uart.write((unsigned char*)"waiting...", strlen("waiting..."));
+  }
+}
+
+// ACI Event callback
+void aciCallback(aci_evt_opcode_t event)
+{
+  switch (event)
+  {
+  case ACI_EVT_DEVICE_STARTED:
+    Serial.println(F("Advertising started"));
+    break;
+  case ACI_EVT_CONNECTED:
+    Serial.println(F("Connected!"));
+    break;
+  case ACI_EVT_DISCONNECTED:
+    Serial.println(F("Disconnected or advertising timed out"));
+    break;
+  default:
+    break;
+  }
+}
+
+void addToCMDBuffer(char c)
+{
+  if (cmdBufPos < CMD_BUF_LEN - 1)
+  {
+    if (c == '!')
+    {
+      cmdBufPos = 0;
+    }
+    cmdBuffer[cmdBufPos] = c;
+    cmdBufPos++;
+    cmdBuffer[cmdBufPos] = '\0';
+    if (cmdBufPos >= 4)
+    {
+      // check command here!
+      if (strcmp(cmdBuffer, "!B11:") == 0)
+      {
+        buttonPress(1); // 1 DOWN
+      }
+      else if (strcmp(cmdBuffer, "!B219") == 0)
+      {
+        buttonPress(2); // 2 DOWN
+      }
+      else if (strcmp(cmdBuffer, "!B318") == 0)
+      {
+        buttonPress(3); // 3 DOWN
+      }
+      else if (strcmp(cmdBuffer, "!B417") == 0)
+      {
+        buttonPress(4); // 4 DOWN
+      }
+      else
+      {
+        // DEBUG
+        /* 
+        Serial.print(" BUFFER: [");
+        Serial.print(cmdBuffer);
+        Serial.println("]");
+        */
+      }
+    }
+  }
+  else
+  {
+    // buffer overflow!
+    cmdBufPos = 0;
+  }
+}
+
+void buttonPress(int button)
+{
+  Serial.print("Button ");
+  Serial.print(button);
+  Serial.println(" pressed.");
+  lastMessageTime = millis();
+  // reset our buffer!
+  cmdBufPos = 0;
+      measureState = button;
+
+  switch (button)
+  {
+  case 1:
+    altitude = 1.6;
+    measureState = button;
+    break;
+  case 2:
+    altitude = 5;
+    break;
+  case 3:
+    altitude = 10;
+    break;
+  case 4:
+    altitude = 15;
+    break;
+  }
+}
+
+// data received from bluetooth UART
+void rxCallback(uint8_t *buffer, uint8_t len)
+{
+  /*
+  Serial.print(F("         Received "));
+  //Serial.print(len);
+  //Serial.print(F(" bytes: "));
+  for (int i = 0; i < len; i++)
+  {
+    Serial.print((char)buffer[i]);
+  }
+  Serial.println("");
+ */
+  for (int i = 0; i < len; i++)
+  {
+    addToCMDBuffer((char)buffer[i]);
+  }
+
+  uart.write(buffer, len);
+}
+
+void sensorLoop()
+{
+  if(measureState >= 0){
+    // good, we should measure!
+    measureState = -1;
+    Serial.println("SENSOR LOOP IS FUCKED UP. :-(");
+  }else{
+    return;
+  }
   // WEATHER
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature(); // Read temperature as Celsius (the default)
+  float humidity;
+  float temperature;
+  // humidity = dht.readHumidity();
+  // temperature = dht.readTemperature(); // Read temperature as Celsius (the default)
+  
   if (isnan(humidity) || isnan(temperature))
   {
     Serial.println("Failed to read from DHT sensor!");
     humidity = -1;
     temperature = -1;
   }
-
+  
   /********************************************/
   readWindSensor();
+
 
   // SOUND recording
   recordMicrophoneVolume();
 
-  // LOGGING
-  unsigned long now = millis();
-  if (now - lastLogTime > 500)
-  {
-    lastLogTime = now;
-    logToSDCard(windSpeed,
-                humidity,
-                temperature,
-                soundVolume);
-  }
+  logToSDCard(altitude,
+              windSpeed,
+              humidity,
+              temperature,
+              soundVolume);
 }
 
 void readWindSensor()
@@ -147,7 +320,7 @@ void readWindSensor()
     now = millis();
   }
 
-  if (pulseTime <= 0 )
+  if (pulseTime <= 0)
   {
     windSpeed = 0;
   }
@@ -204,13 +377,16 @@ void recordMicrophoneVolume()
   soundVolume /= BUFSIZE;
 }
 
-void logToSDCard(float _windspeed,
+void logToSDCard(float _altitude,
+                 float _windspeed,
                  float _humidity,
                  float _temperature,
                  int _soundVolume)
 {
   String dataString = "";
   dataString += millis();
+  dataString += ", ";
+  dataString += String(_altitude);
   dataString += ", ";
   dataString += String(_windspeed);
   dataString += ", ";
@@ -228,6 +404,7 @@ void logToSDCard(float _windspeed,
     dataFile.println(dataString);
     dataFile.close();
     // print to the serial port too:
+    Serial.print("Logged data: ");
     Serial.println(dataString);
   }
   // if the file isn't open, pop up an error:
@@ -235,6 +412,7 @@ void logToSDCard(float _windspeed,
   {
     Serial.println("error opening datalog.CSV");
   }
+  lastMessageTime = millis();
 }
 
 void measuringBlink()
@@ -246,11 +424,11 @@ void measuringBlink()
     ledOn = !ledOn;
     if (ledOn)
     {
-      digitalWrite(LED_BUILTIN, HIGH);
+      digitalWrite(33, HIGH);
     }
     else
     {
-      digitalWrite(LED_BUILTIN, LOW);
+      digitalWrite(33, LOW);
     }
     lastBlink = now;
   }
@@ -260,9 +438,9 @@ void errorBlink()
 {
   while (true)
   {
-    digitalWrite(LED_BUILTIN, HIGH);
+    digitalWrite(33, HIGH);
     delay(100);
-    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(33, LOW);
     delay(100);
   }
 }

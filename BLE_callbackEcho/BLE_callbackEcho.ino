@@ -41,9 +41,17 @@ void setup(void)
   uart.begin();
 }
 
+unsigned long lastMessage = 0;
+
 void loop()
 {
   uart.pollACI();
+  unsigned long now = millis();
+  if( now > lastMessage + 1000){
+    lastMessage = now;
+    Serial.print(now/1000);
+    Serial.println(" waiting... ");
+  }
 }
 
 // ACI Event callback
@@ -63,6 +71,29 @@ void aciCallback(aci_evt_opcode_t event)
   default:
     break;
   }
+}
+
+
+
+void buttonPress(int button)
+{
+  Serial.print("Button ");
+  Serial.print(button);
+  Serial.println(" pressed.");
+  // reset our buffer!
+  cmdBufPos = 0;
+}
+
+// data received from bluetooth UART
+void rxCallback(uint8_t *buffer, uint8_t len)
+{
+
+ for (int i = 0; i < len; i++)
+  {
+    addToCMDBuffer((char)buffer[i]);
+  }
+
+ // uart.write(buffer, len);
 }
 
 void addToCMDBuffer(char c)
@@ -108,46 +139,4 @@ void addToCMDBuffer(char c)
     // buffer overflow!
     cmdBufPos = 0;
   }
-}
-
-void buttonPress(int button)
-{
-  Serial.print("Button ");
-  Serial.print(button);
-  Serial.println(" pressed.");
-  // reset our buffer!
-  cmdBufPos = 0;
-}
-
-// data received from bluetooth UART
-void rxCallback(uint8_t *buffer, uint8_t len)
-{
-  /*
-  Serial.print(F("         Received "));
-  //Serial.print(len);
-  //Serial.print(F(" bytes: "));
-  for (int i = 0; i < len; i++)
-  {
-    Serial.print((char)buffer[i]);
-  }
-  Serial.println("");
- */
- for (int i = 0; i < len; i++)
-  {
-    addToCMDBuffer((char)buffer[i]);
-  }
-
-
-  /* 
-  Serial.print(F(" ["));
-
-  for (int i = 0; i < len; i++)
-  {
-    Serial.print(" 0x");
-    Serial.print((char)buffer[i], HEX);
-  }
-  Serial.println(F(" ]"));
-*/
-  /* Echo the same data back! */
-  uart.write(buffer, len);
 }

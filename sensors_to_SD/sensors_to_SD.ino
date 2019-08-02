@@ -1,20 +1,22 @@
 #include <Bounce.h>
 #include <SD.h>
 #include <SPI.h> 
-#include "DHT.h"
+// #include "DHT.h"
 #include "Adafruit_BLE_UART.h"
 
 
 
-#define LED_PIN 33
+#define LED_PIN 33 // not used for now, but could be used to attach a bright LED (with a driver!) as a signal
 
 // MICRO SD
 const int chipSelect = BUILTIN_SDCARD;
 
 // WEATHER SENSOR
+/* 
 #define DHTPIN 12
 #define DHTTYPE DHT11 // DHT 11
 DHT dht(DHTPIN, DHTTYPE);
+*/
 
 // WIND SENSOR
 #define ANEMOPIN 34
@@ -60,7 +62,7 @@ void setup()
   digitalWrite(LED_PIN, HIGH);
 
   // WEATHER
-  dht.begin();
+  // dht.begin();
 
   // WIND
   pinMode(ANEMOPIN, INPUT_PULLUP);
@@ -247,17 +249,18 @@ void sensorLoop()
     return;
   }
   // WEATHER
-  float humidity;
-  float temperature;
+  float humidity = -1;
+  float temperature = -1;
   // humidity = dht.readHumidity();
   // temperature = dht.readTemperature(); // Read temperature as Celsius (the default)
-  
+  /* 
   if (isnan(humidity) || isnan(temperature))
   {
     Serial.println("Failed to read from DHT sensor!");
     humidity = -1;
     temperature = -1;
   }
+  */
   
   /********************************************/
   readWindSensor();

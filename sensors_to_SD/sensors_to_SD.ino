@@ -1,13 +1,13 @@
+
+#include <Adafruit_HMC5883_U.h>
+#include <Adafruit_Sensor.h>
 #include <Bounce.h>
 #include <SD.h>
 #include <SPI.h>
+#include <Wire.h>
 // #include "DHT.h"
 #include "Adafruit_BLE_UART.h"
 #include <TinyGPS.h>
-
-
-
-
 
 #define LED_PIN 33
 // not used for now, but could be used to attach a bright LED (with a
@@ -15,6 +15,7 @@
 
 // MICRO SD
 const int chipSelect = BUILTIN_SDCARD;
+bool bFoundSD = false;
 
 // WEATHER SENSOR
 /*
@@ -70,11 +71,26 @@ char gpsBuf[32];  // for gps text printing
 char timeMsg[32]; // holds the time of this measurement, from GPS
 float latitude, longitude, elevation;
 
+// COMPASS / MAG SENSOR
+/* Assign a unique ID to this sensor at the same time */
+Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
+bool bFoundMagSensor = false;
+// we didn't figure out how to calculate the compass heading, so let's just
+// record raw data and worry about it later!
+float heading_x = 0;
+float heading_y = 0;
+float heading_z = 0;
+
 //-------------------------------------------------------------------------------------------------
 void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
+
+  // while(!Serial);
+  Serial.begin(57600);
+  delay(100);
+  Serial.println("Hello, I am the sensor clubhouse. I live in a balloon.");
 
   // WEATHER
   // dht.begin();
@@ -83,15 +99,16 @@ void setup() {
   pinMode(ANEMOPIN, INPUT_PULLUP);
 
   // SD
-  Serial.print("Initializing SD card...");
+  Serial.println("Initializing SD card...");
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
     Serial.println("Card failed, or not present");
     // don't do anything more:
     errorBlink();
-    return;
+  } else {
+    Serial.println("card initialized.");
+    bFoundSD = true;
   }
-  Serial.println("card initialized.");
 
   // MICROPHONE
   pinMode(MICROPHONE_PIN, INPUT);
@@ -106,9 +123,15 @@ void setup() {
   // GPS Initializing
   gpsPort.begin(9600);
 
-  // while(!Serial);
-  Serial.begin(57600);
-  Serial.println("Hello, I am the sensor clubhouse. I live in a balloon.");
+  // MAG SENSOR
+  if (!mag.begin()) {
+    Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
+  } else {
+    bFoundMagSensor = true;
+  }
+
+  /* Display some basic information on this sensor */
+  displayMagSensorDetails();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -129,12 +152,62 @@ void loop() {
 
   // keep alive messages
   unsigned long now = millis();
-  if (now > lastMessageTime + 1000) {
+  if (now > lastMessageTime + 2000) {
+    int waitCycle = now / 2000;
     lastMessageTime = now;
-    Serial.print(now / 1000);
+    Serial.print(waitCycle);
     Serial.println(" waiting... ");
-    uart.write((unsigned char *)"waiting...", strlen("waiting..."));
+    // DEBUG
+    /*
+    if (waitCycle == 2) {
+      buttonPress(5);
+    }
+    */
+    // uncomment to send waiting messages of BLE
+    //uart.write((unsigned char *)"waiting...", strlen("waiting..."));
   }
+}
+
+//-------------------------------------------------------------------------------------------------
+void displayMagSensorDetails(void) {
+  if (!bFoundMagSensor) {
+    return;
+  }
+  sensor_t sensor;
+  mag.getSensor(&sensor);
+  Serial.println("------------------------------------");
+  Serial.print("Sensor:       ");
+  Serial.println(sensor.name);
+  Serial.print("Driver Ver:   ");
+  Serial.println(sensor.version);
+  Serial.print("Unique ID:    ");
+  Serial.println(sensor.sensor_id);
+  Serial.print("Max Value:    ");
+  Serial.print(sensor.max_value);
+  Serial.println(" uT");
+  Serial.print("Min Value:    ");
+  Serial.print(sensor.min_value);
+  Serial.println(" uT");
+  Serial.print("Resolution:   ");
+  Serial.print(sensor.resolution);
+  Serial.println(" uT");
+  Serial.println("------------------------------------");
+  Serial.println("");
+  delay(100);
+}
+
+//-------------------------------------------------------------------------------------------------
+void readCompass() {
+  if (!bFoundMagSensor) {
+    return;
+  }
+  /* Get a new sensor event */
+  sensors_event_t event;
+  mag.getEvent(&event);
+
+  heading_x = event.magnetic.x;
+  heading_y = event.magnetic.y;
+  heading_z = event.magnetic.z;
 }
 
 // ACI Event callback
@@ -200,9 +273,12 @@ void buttonPress(int button) {
   measureState = button;
 
   switch (button) {
+  case 5: // test mode!
+    altitude = -1;
+    Serial.println("THIS IS A FAKE BUTTON PRESS");
+    break;
   case 1:
     altitude = 1.6;
-    measureState = button;
     break;
   case 2:
     altitude = 5;
@@ -269,6 +345,9 @@ void sensorLoop() {
   // SOUND recording
   recordMicrophoneVolume();
 
+  // read Compass/bFoundMagSensor
+  readCompass();
+
   logToSDCard();
 }
 
@@ -281,6 +360,7 @@ void readGPS() {
 
   // For one second we parse GPS data and report some key values
   for (unsigned long start = millis(); millis() - start < 1000;) {
+    measuringBlink();
     while (gpsPort.available()) {
       char c = gpsPort.read();
       Serial.write(
@@ -354,6 +434,7 @@ void readWindSensor() {
   unsigned long recordingStart = millis();
   unsigned long now = millis();
 
+  Serial.println("Reading wind sensor... ");
   while (now < recordingStart + 2000) // 2 seconds of reading
   {
     measuringBlink();
@@ -396,7 +477,6 @@ void readWindSensor() {
 
 //-------------------------------------------------------------------------------------------------
 void recordMicrophoneVolume() {
-
   bufPos = 0;
   while (bufPos < BUFSIZE) {
     measuringBlink();
@@ -442,7 +522,7 @@ void logToSDCard() {
   // timeMsg, altitude, windSpeed, humidity, temperature, soundVolume,
   // longitude, latitude, elevation
   String dataString = "";
-  dataString += String(timeMsg);
+  dataString += String(timeMsg); // text version of the time
   dataString += ", ";
   dataString += String(altitude);
   dataString += ", ";
@@ -459,21 +539,34 @@ void logToSDCard() {
   dataString += String(latitude);
   dataString += ", ";
   dataString += String(elevation);
+  dataString += ", ";
+  dataString += String(heading_x);
+  dataString += ", ";
+  dataString += String(heading_y);
+  dataString += ", ";
+  dataString += String(heading_z);
 
-  File dataFile = SD.open("LOG.CSV", FILE_WRITE);
+  File dataFile;
+  if (bFoundSD) {
+    dataFile = SD.open("LOG.CSV", FILE_WRITE);
 
-  // if the file is available, write to it:
-  if (dataFile) {
-    dataFile.println(dataString);
-    dataFile.close();
-    // print to the serial port too:
-    Serial.print("Logged data: ");
-    Serial.println(dataString);
+    // if the file is available, write to it:
+    if (dataFile) {
+      dataFile.println(dataString);
+      dataFile.close();
+      // print to the serial port too:
+      Serial.print("Logged data: ");
+      Serial.println(dataString);
+    }
+    // if the file isn't open, pop up an error:
+    else {
+      Serial.println("error opening datalog.CSV");
+      Serial.print("Data: ");
+      Serial.println(dataString);
+    }
   }
-  // if the file isn't open, pop up an error:
-  else {
-    Serial.println("error opening datalog.CSV");
-  }
+  uart.write((unsigned char *)"done logging", strlen("done logging"));
+
   lastMessageTime = millis();
 }
 
@@ -481,12 +574,12 @@ void logToSDCard() {
 void measuringBlink() {
   unsigned long now = millis();
   if (((now > lastBlink + 50) && ledOn) ||
-      ((now > lastBlink + 1000) && !ledOn)) {
+      ((now > lastBlink + 200) && !ledOn)) {
     ledOn = !ledOn;
     if (ledOn) {
-      digitalWrite(33, HIGH);
+      digitalWrite(LED_PIN, HIGH);
     } else {
-      digitalWrite(33, LOW);
+      digitalWrite(LED_PIN, LOW);
     }
     lastBlink = now;
   }
@@ -494,10 +587,10 @@ void measuringBlink() {
 
 //-------------------------------------------------------------------------------------------------
 void errorBlink() {
-  while (true) {
-    digitalWrite(33, HIGH);
+  for (int i = 0; i < 10; i++) {
+    digitalWrite(LED_PIN, HIGH);
     delay(100);
-    digitalWrite(33, LOW);
+    digitalWrite(LED_PIN, LOW);
     delay(100);
   }
 }

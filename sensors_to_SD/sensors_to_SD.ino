@@ -1,8 +1,16 @@
 // uncomment to use magnetic sensor (compass)
 //#define USE_MAG_SENSOR
 
+// uncomment to use DHT11
+#define USE_DHT11
+//#define FUCK_INTERRUPTS
+
 #ifdef USE_MAG_SENSOR
 #include <Adafruit_HMC5883_U.h>
+#endif
+
+#ifdef USE_DHT11
+#include "DHT.h"
 #endif
 
 #include <Adafruit_Sensor.h>
@@ -10,7 +18,6 @@
 #include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
-// #include "DHT.h"
 #include "Adafruit_BLE_UART.h"
 #include <TinyGPS.h>
 
@@ -23,11 +30,12 @@ const int chipSelect = BUILTIN_SDCARD;
 bool bFoundSD = false;
 
 // WEATHER SENSOR
-/*
-#define DHTPIN 12
+#ifdef USE_DHT11
+#define DHTPIN 24
 #define DHTTYPE DHT11 // DHT 11
 DHT dht(DHTPIN, DHTTYPE);
-*/
+#endif
+
 float humidity = 0;
 float temperature = 0;
 
@@ -111,8 +119,10 @@ void setup()
   delay(100);
   Serial.println("Hello, I am the sensor clubhouse. I live in a balloon.");
 
+#ifdef USE_DHT11
   // WEATHER
-  // dht.begin();
+  dht.begin();
+#endif
 
   // WIND
   pinMode(ANEMOPIN, INPUT_PULLUP);
@@ -173,7 +183,7 @@ void loop()
   while (ble_uart.available())
   {
     char c = ble_uart.read();
-    Serial.print(c);
+    // Serial.print(c);
     addToCMDBuffer(c);
   }
 
@@ -377,7 +387,13 @@ void sensorLoop()
   {
     // good, we should measure!
     measureState = -1;
+
+    Serial.println("");
+#ifndef USE_DHT11
     Serial.println("SENSOR LOOP WITHOUT DHT. :-(");
+#else
+    Serial.println("SENSOR LOOP (with DHT ^_^)");
+#endif
     ble_uart.write((uint8_t *)"Start log ", strlen("Start log "));
   }
   else
@@ -387,17 +403,25 @@ void sensorLoop()
   // WEATHER
   humidity = -1;
   temperature = -1;
-  // humidity = dht.readHumidity();
-  // temperature = dht.readTemperature(); // Read temperature as Celsius (the
-  // default)
-  /*
+
+#ifdef USE_DHT11
+  humidity = dht.readHumidity();
+  temperature = dht.readTemperature();
+  // Read temperature as Celsius (the default)
+
   if (isnan(humidity) || isnan(temperature))
   {
     Serial.println("Failed to read from DHT sensor!");
     humidity = -1;
     temperature = -1;
+  }else{
+    Serial.print("temp: ");
+    Serial.print(temperature);
+    Serial.print("°C humidity: ");
+    Serial.print(humidity);
+    Serial.println("%");
   }
-  */
+#endif
 
   // GPS
   readGPS();
@@ -417,6 +441,8 @@ void sensorLoop()
 #endif
 
   logToSDCard();
+
+  Serial.println("");
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -490,8 +516,8 @@ void readGPS()
   }
 
   gps.crack_datetime(&year, &month, &day, &hour, &minutes, &second, &hundredths, &age);
+  hour += 2; // timezon Paris is +2 now (summer)
   sprintf(timeMsg, "%d/%02d/%02d %02d:%02d:%02d", year, month, day, hour, minutes, second);
-  Serial.println("");
   Serial.println(timeMsg);
 
   gps.stats(&chars, &sentences, &failed);
@@ -571,7 +597,7 @@ void readWindSensor()
     // TODO: weird peaks when going from 0 speed to something higher and also at
     // the low end close to measurement threshold :-/
   }
-  Serial.print( windSpeed);
+  Serial.print(windSpeed);
   Serial.println("rpm");
 }
 
@@ -625,7 +651,7 @@ void recordMicrophoneVolume()
 void logToSDCard()
 {
   // timeMsg, altitude, windSpeed, humidity, temperature, soundVolume,
-  // latitude, longitude, elevation, 
+  // latitude, longitude, elevation,
   // compass X, Y, Z
   char gpsNumber[16];
   String dataString = "";

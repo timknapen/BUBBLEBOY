@@ -1,5 +1,5 @@
 // uncomment to use magnetic sensor (compass)
-//#define USE_MAG_SENSOR
+#define USE_MAG_SENSOR
 
 // uncomment to use DHT11
 #define USE_DHT11
@@ -91,15 +91,11 @@ uint8_t month, day, hour, minutes, second, hundredths;
 // COMPASS / MAG SENSOR
 /* Assign a unique ID to this sensor at the same time */
 #ifdef USE_MAG_SENSOR
+#define HEADING_BUF_LEN 6
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 #endif
 bool bFoundMagSensor = false;
-
-// we didn't figure out how to calculate the compass heading, so let's just
-// record raw data and worry about it later!
-float heading_x = 0;
-float heading_y = 0;
-float heading_z = 0;
+float heading = 0; // our angle
 
 //-------------------------------------------------------------------------------------------------
 void setup()
@@ -149,13 +145,6 @@ void setup()
     volBuffer[i] = 0;
   }
 
-  // BLE Initializing
-  ble_uart.setDeviceName("BBLEBOY"); /* 7 characters max! */
-  ble_uart.begin();
-
-  // GPS Initializing
-  gpsPort.begin(9600);
-
 // MAG SENSOR
 #ifdef USE_MAG_SENSOR
   if (!mag.begin())
@@ -170,6 +159,13 @@ void setup()
   /* Display some basic information on this sensor */
   displayMagSensorDetails();
 #endif
+
+  // BLE Initializing
+  ble_uart.setDeviceName("BBLEBOY"); /* 7 characters max! */
+  ble_uart.begin();
+
+  // GPS Initializing
+  gpsPort.begin(9600);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -247,13 +243,115 @@ void readCompass()
   {
     return;
   }
-  /* Get a new sensor event */
-  sensors_event_t event;
-  mag.getEvent(&event);
 
-  heading_x = event.magnetic.x;
-  heading_y = event.magnetic.y;
-  heading_z = event.magnetic.z;
+  //setup some variables
+  /*
+# Ranges when flippin Z all over the place:
+# X -40.45 to 33.27
+# Y -45.73 to 26.55
+# Z -72.35 to 17.24
+*/
+
+  /* Ranges when Z is steady:
+X -20.64 to 15
+Y -45.73 to 9
+Z -72.35 to 4.08
+*/
+
+  Serial.print("Reading compass... ");
+
+  float minX = -40.45; //-20.64;
+  float maxX = 33.27;  //15;
+
+  float minY = -45.73; // -26;
+  float maxY = 26.55;  // 9;
+
+  float minZ = -72.35; // -63.57;
+  float maxZ = 17.24;  // 4.08;
+
+  float x = 0;
+  float y = 0;
+  float z = 0;
+
+  float angleBuffer[HEADING_BUF_LEN];
+  int bufPos = 0;
+
+  // fill buffer
+  for (int i = 0; i < HEADING_BUF_LEN; i++)
+  {
+    angleBuffer[i] = 0;
+  }
+
+  for (int i = 0; i < HEADING_BUF_LEN; i++)
+  {
+    /* Get a new sensor event */
+    sensors_event_t event;
+    mag.getEvent(&event);
+
+    float curx = event.magnetic.x;
+    float cury = event.magnetic.y;
+    float curz = event.magnetic.z;
+
+    // set to middle point as origin?
+    // normalize?
+    curx -= (minX + maxX) / 2;
+    cury -= (minY + maxY) / 2;
+    curz -= (minZ + maxZ) / 2;
+
+    // rescale to fixed range (-100, 100);
+    curx *= 100.0f / abs(maxX - minX) / 2;
+    cury *= 100.0f / abs(maxY - minY) / 2;
+    curz *= 100.0f / abs(maxZ - minZ) / 2;
+
+    // zeno out noise
+    x += (curx - x) / 2;
+    y += (cury - y) / 2;
+    z += (curz - z) / 2;
+
+    // Hold the module so that Z is pointing 'up' and you can measure the heading with x&y
+    // Calculate heading when the magnetometer is level, then correct for signs of axis.
+    float curHeading = atan2(y, x);
+
+    // Once you have your heading, you must then add your 'Declination Angle', which is the 'Error' of the magnetic field in your location.
+    // Find yours here: http://www.magnetic-declination.com/
+    // Mine is: -13* 2' W, which is ~13 Degrees, or (which we need) 0.22 radians
+    // If you cannot find your Declination, comment out these two lines, your compass will be slightly off.
+    // float declinationAngle = 1.12; // for Paris
+    // curHeading += declinationAngle;
+
+    // Correct for when signs are reversed.
+    if (curHeading < 0)
+    {
+      curHeading += 2 * M_PI;
+    }
+
+    // Check for wrap due to addition of declination.
+    if (curHeading > 2 * M_PI)
+    {
+      curHeading -= 2 * M_PI;
+    }
+
+    // Convert radians to degrees for readability.
+    float headingDegrees = curHeading * 180.0 / M_PI;
+
+    //fill angle buffer
+    angleBuffer[bufPos] = headingDegrees;
+    bufPos++;
+    bufPos %= HEADING_BUF_LEN;
+    delay(10);
+  }
+
+  float avgHeading = 0;
+  for (int i = 0; i < HEADING_BUF_LEN; i++)
+  {
+    avgHeading += angleBuffer[i];
+  }
+  avgHeading /= HEADING_BUF_LEN;
+
+  heading = avgHeading;
+  Serial.print(" direction: ");
+  Serial.print(heading);
+  Serial.println("°");
 }
 #endif
 
@@ -414,7 +512,9 @@ void sensorLoop()
     Serial.println("Failed to read from DHT sensor!");
     humidity = -1;
     temperature = -1;
-  }else{
+  }
+  else
+  {
     Serial.print("temp: ");
     Serial.print(temperature);
     Serial.print("°C humidity: ");
@@ -435,6 +535,9 @@ void sensorLoop()
   // SOUND recording
   recordMicrophoneVolume();
 
+  // AIR Quality
+  recordAirquality();
+
 #ifdef USE_MAG_SENSOR
   // read Compass/bFoundMagSensor
   readCompass();
@@ -443,6 +546,12 @@ void sensorLoop()
   logToSDCard();
 
   Serial.println("");
+}
+
+//-------------------------------------------------------------------------------------------------
+void recordAirquality()
+{
+  // nothing here yet
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -678,11 +787,7 @@ void logToSDCard()
   dataString += ", ";
   dataString += String(elevation);
   dataString += ", ";
-  dataString += String(heading_x);
-  dataString += ", ";
-  dataString += String(heading_y);
-  dataString += ", ";
-  dataString += String(heading_z);
+  dataString += String(heading);
 
   File dataFile;
   if (bFoundSD)

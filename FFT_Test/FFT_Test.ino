@@ -1,85 +1,160 @@
-// DHT Temperature & Humidity Sensor
-// Unified Sensor Library Example
-// Written by Tony DiCola for Adafruit Industries
-// Released under an MIT license.
+// Audio FFT (pure)
+// outputs FFT to serial
 
-// REQUIRES the following Arduino libraries:
-// - DHT Sensor Library: https://github.com/adafruit/DHT-sensor-library
-// - Adafruit Unified Sensor Lib: https://github.com/adafruit/Adafruit_Sensor
+#define ARM_MATH_CM4
+#include <arm_math.h>
 
-#include <Adafruit_Sensor.h>
-#include <DHT.h>
-#include <DHT_U.h>
+////////////////////////////////////////////////////////////////////////////////
+// CONIFIGURATION
+// These values can be changed to alter the behavior of the spectrum display.
+////////////////////////////////////////////////////////////////////////////////
 
-#define DHTPIN 2     // Digital pin connected to the DHT sensor 
-// Feather HUZZAH ESP8266 note: use pins 3, 4, 5, 12, 13 or 14 --
-// Pin 15 can work but DHT must be disconnected during program upload.
+int SAMPLE_RATE_HZ = 9000; // Sample rate of the audio in hertz.
 
-// Uncomment the type of sensor in use:
-#define DHTTYPE    DHT11     // DHT 11
-//#define DHTTYPE    DHT22     // DHT 22 (AM2302)
-//#define DHTTYPE    DHT21     // DHT 21 (AM2301)
+const int FFT_SIZE = 256; // Size of the FFT.  Realistically can only be at most 256
+// without running out of memory for buffers and other state.
+const int AUDIO_INPUT_PIN = A0;        // Input ADC pin for audio data.
+const int ANALOG_READ_RESOLUTION = 10; // Bits of resolution for the ADC.
+const int ANALOG_READ_AVERAGING = 16;  // Number of samples to average with each ADC reading.
 
-// See guide for details on sensor wiring and usage:
-//   https://learn.adafruit.com/dht/overview
+////////////////////////////////////////////////////////////////////////////////
+// INTERNAL STATE
+// These shouldn't be modified unless you know what you're doing.
+////////////////////////////////////////////////////////////////////////////////
 
-DHT_Unified dht(DHTPIN, DHTTYPE);
+IntervalTimer samplingTimer;
+float samples[FFT_SIZE * 2];
+float magnitudes[FFT_SIZE];
+int sampleCounter = 0;
 
-uint32_t delayMS;
+void setup()
+{
+  pinMode(LED_BUILTIN, OUTPUT);
+  // Set up serial port.
+  while (!Serial)
+  { // wait for the serial port, because this thing only works when there's a serial port..
+    for (int i = 0; i < 3; i++)
+    {
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(250);
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(250);
+    }
+    delay(500);
+  }
+  
+  Serial.begin(115200);
+  Serial.print("Sending FFT data at ");
+  Serial.print(SAMPLE_RATE_HZ);
+  Serial.println("Hz sample rate");
+  delay(1000);
 
-void setup() {
-  Serial.begin(9600);
-  // Initialize device.
-  dht.begin();
-  Serial.println(F("DHTxx Unified Sensor Example"));
-  // Print temperature sensor details.
-  sensor_t sensor;
-  dht.temperature().getSensor(&sensor);
-  Serial.println(F("------------------------------------"));
-  Serial.println(F("Temperature Sensor"));
-  Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
-  Serial.print  (F("Driver Ver:  ")); Serial.println(sensor.version);
-  Serial.print  (F("Unique ID:   ")); Serial.println(sensor.sensor_id);
-  Serial.print  (F("Max Value:   ")); Serial.print(sensor.max_value); Serial.println(F("°C"));
-  Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("°C"));
-  Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("°C"));
-  Serial.println(F("------------------------------------"));
-  // Print humidity sensor details.
-  dht.humidity().getSensor(&sensor);
-  Serial.println(F("Humidity Sensor"));
-  Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
-  Serial.print  (F("Driver Ver:  ")); Serial.println(sensor.version);
-  Serial.print  (F("Unique ID:   ")); Serial.println(sensor.sensor_id);
-  Serial.print  (F("Max Value:   ")); Serial.print(sensor.max_value); Serial.println(F("%"));
-  Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("%"));
-  Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("%"));
-  Serial.println(F("------------------------------------"));
-  // Set delay between sensor readings based on sensor details.
-  delayMS = sensor.min_delay / 1000;
+  // Set up ADC and audio input.
+  pinMode(AUDIO_INPUT_PIN, INPUT);
+  analogReadResolution(ANALOG_READ_RESOLUTION);
+  analogReadAveraging(ANALOG_READ_AVERAGING);
+
+  // Begin sampling audio
+  samplingBegin();
 }
 
-void loop() {
-  // Delay between measurements.
-  delay(delayMS);
-  // Get temperature event and print its value.
-  sensors_event_t event;
-  dht.temperature().getEvent(&event);
-  if (isnan(event.temperature)) {
-    Serial.println(F("Error reading temperature!"));
+void loop()
+{
+  // Calculate FFT if a full sample is available.
+  if (samplingIsDone())
+  {
+    // Run FFT on sample data.
+    arm_cfft_radix4_instance_f32 fft_inst;
+    arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
+    arm_cfft_radix4_f32(&fft_inst, samples);
+    // Calculate magnitude of complex numbers output by the FFT.
+    arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
+
+    outPutData();
+
+    // Restart audio sampling.
+    samplingBegin();
   }
-  else {
-    Serial.print(F("Temperature: "));
-    Serial.print(event.temperature);
-    Serial.println(F("°C"));
+}
+
+// Convert intensity to decibels
+float intensityDb(float intensity)
+{
+  return 20 * log10(intensity);
+}
+
+void outPutData()
+{
+
+  //*
+
+  // run through the magnitudes and send them out over Serial
+  for (int i = 1; i < FFT_SIZE / 2; ++i)
+  {
+    Serial.print(magnitudes[i]);
+    Serial.print(" ");
   }
-  // Get humidity event and print its value.
-  dht.humidity().getEvent(&event);
-  if (isnan(event.relative_humidity)) {
-    Serial.println(F("Error reading humidity!"));
+  Serial.println();
+  //*/
+
+  // Print out DB scaled values
+  for (int i = 1; i < FFT_SIZE / 2; ++i)
+  {
+    Serial.print(magnitudes[i]);
+    Serial.print(" ");
   }
-  else {
-    Serial.print(F("Humidity: "));
-    Serial.print(event.relative_humidity);
-    Serial.println(F("%"));
+  Serial.println();
+
+  /*
+	// FRESH NEW NICOLAS VERSION
+	float maxAmplitude = 0;
+	int strongestBin = -1;
+	for (int i = 1; i < FFT_SIZE / 2; ++i) {
+		float db = intensityDb(magnitudes[i]);
+		if( db > maxAmplitude){
+			strongestBin = i;
+			maxAmplitude = intensityDb(magnitudes[i]);
+		}
+	}
+	if(strongestBin >= 0){
+		float highestFreq =  (float)strongestBin / (float)(FFT_SIZE) * (float)(SAMPLE_RATE_HZ) ;
+		Serial.print(highestFreq);
+		Serial.print(" ");
+		Serial.print(maxAmplitude);
+		Serial.println("");
+	}else{
+		Serial.println("0 0");
+	}
+	*/
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// SAMPLING FUNCTIONS
+////////////////////////////////////////////////////////////////////////////////
+
+void samplingCallback()
+{
+  // Read from the ADC and store the sample data
+  samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
+  // Complex FFT functions require a coefficient for the imaginary part of the input.
+  // Since we only have real data, set this coefficient to zero.
+  samples[sampleCounter + 1] = 0.0;
+  // Update sample buffer position and stop after the buffer is filled
+  sampleCounter += 2;
+  if (sampleCounter >= FFT_SIZE * 2)
+  {
+    samplingTimer.end();
   }
+}
+
+void samplingBegin()
+{
+  // Reset sample buffer position and start callback at necessary rate.
+  sampleCounter = 0;
+  samplingTimer.begin(samplingCallback, 1000000 / SAMPLE_RATE_HZ);
+}
+
+boolean samplingIsDone()
+{
+  return sampleCounter >= FFT_SIZE * 2;
 }

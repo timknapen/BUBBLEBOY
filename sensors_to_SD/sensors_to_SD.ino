@@ -97,9 +97,18 @@ Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 bool bFoundMagSensor = false;
 float heading = 0; // our angle
 
+// AIR QUALITY SENSOR
+#define AIRQPIN A17
+#define AIRQPOWERPIN 39
+int airQuality = 0;
+
 //-------------------------------------------------------------------------------------------------
 void setup()
 {
+
+  pinMode(AIRQPOWERPIN, OUTPUT);
+  digitalWrite(AIRQPOWERPIN, LOW);
+  pinMode(AIRQPIN, INPUT);
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
@@ -110,18 +119,25 @@ void setup()
     digitalWrite(LED_PIN, LOW);
     delay(50);
   }
+
   // while (!Serial) ;
   Serial.begin(57600);
   delay(100);
   Serial.println("Hello, I am the sensor clubhouse. I live in a balloon.");
+  Serial.print("Size of int is ");
+  Serial.print(sizeof(int));
+  Serial.print(" and float is ");
+  Serial.println(sizeof(float));
 
 #ifdef USE_DHT11
   // WEATHER
   dht.begin();
+  Serial.println("Setup DHT");
 #endif
 
   // WIND
   pinMode(ANEMOPIN, INPUT_PULLUP);
+
 
   // SD
   Serial.println("Initializing SD card...");
@@ -158,14 +174,19 @@ void setup()
 
   /* Display some basic information on this sensor */
   displayMagSensorDetails();
+  Serial.println("Set up fake HMC5883 compass");
 #endif
 
+  Serial.println("Starting bluetooth");
   // BLE Initializing
   ble_uart.setDeviceName("BBLEBOY"); /* 7 characters max! */
   ble_uart.begin();
 
+  Serial.println("Done setting up bluetooth");
+
   // GPS Initializing
   gpsPort.begin(9600);
+  Serial.println("Done setting up GPS");
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -551,7 +572,23 @@ void sensorLoop()
 //-------------------------------------------------------------------------------------------------
 void recordAirquality()
 {
-  // nothing here yet
+  Serial.print("Recording air quality sensor... switching on for 30sec ... ");
+  // unsigned long beginTime = millis();
+  digitalWrite(AIRQPOWERPIN, HIGH); // switch on the sensor
+  delay(30000); // wait for half a minute
+  int numAirSamples = 256;
+  int i = 0;
+  float avgAirq = 0;
+  Serial.print(" recording ... ");
+  while(i < numAirSamples){
+    avgAirq += (float)analogRead(AIRQPIN);
+    delay(20);
+  }
+  avgAirq /= (float)numAirSamples;
+  airQuality = avgAirq;
+  Serial.println("done");
+
+  digitalWrite(AIRQPOWERPIN, LOW); // switch off the sensor
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -788,6 +825,8 @@ void logToSDCard()
   dataString += String(elevation);
   dataString += ", ";
   dataString += String(heading);
+  dataString += ", ";
+  dataString += String(airQuality);
 
   File dataFile;
   if (bFoundSD)

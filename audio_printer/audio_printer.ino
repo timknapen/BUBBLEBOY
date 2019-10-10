@@ -11,7 +11,7 @@ int lastSample = 0;
 int maxVal = 0;
 int minVal = 0;
 
-int sampleDelayUs = 50; // delay between samples in microseconds
+#define SAMPLE_DELAY_US 50 // delay between samples in microseconds
 
 void setup()
 {
@@ -29,11 +29,13 @@ void setup()
     delay(500);
   }
   Serial.begin(57600);
-  Serial.println("Audio Sample Recorder");
-  Serial.print("Recorder sample size: ");
+  Serial.println("# Audio Sample Recorder");
+  Serial.print("# Recorder sample size: ");
   Serial.println(NUMSAMPLES);
-  Serial.println(NUMSAMPLES - 1);
-  delay(200);
+  Serial.print("# Sample frequency : ");
+  Serial.print((int) 1000000 / SAMPLE_DELAY_US );
+  Serial.println("Hz");
+  delay(2000);
 
   pinMode(MICROPHONE_PIN, INPUT);
 }
@@ -54,10 +56,10 @@ void loop()
     minVal = min(val, minVal);
     maxVal = max(val, maxVal);
     pos++;
-    delayMicroseconds(sampleDelayUs);
+    delayMicroseconds(SAMPLE_DELAY_US);
   }
 
-  if (maxVal - minVal > 200) // we detected some kind of peak!
+  if (maxVal - minVal > 100) // we detected some kind of peak!
   {
 
     // continue sampling
@@ -68,7 +70,7 @@ void loop()
       minVal = min(val, minVal);
       maxVal = max(val, maxVal);
       pos++;
-      delayMicroseconds(sampleDelayUs);
+      delayMicroseconds(SAMPLE_DELAY_US);
     }
     //*
     unsigned long endTime = millis();

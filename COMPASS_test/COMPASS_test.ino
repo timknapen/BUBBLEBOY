@@ -55,8 +55,9 @@ float x = 0;
 float y = 0;
 float z = 0;
 
-bool bUpdateMinMax = false; // set to true to record min max values
-bool bOutputRange = false;  // set to true to print min max
+bool bUpdateMinMax = true; // set to true to record min max values
+bool bUseMinMax = true;
+bool bOutputRange = false; // set to true to print min max
 
 unsigned long lastMessage = 0;
 
@@ -132,7 +133,7 @@ void loop(void)
     maxY = max(cury, maxY);
     maxZ = max(curz, maxZ);
   }
-  else
+  if (bUseMinMax)
   {
     // set to middle point as origin?
     // normalize?
@@ -140,10 +141,25 @@ void loop(void)
     cury -= (minY + maxY) / 2;
     curz -= (minZ + maxZ) / 2;
 
+    float xrange = maxX - minX;
+    float yrange = maxY - minY;
+    float zrange = maxZ - minZ;
+
     // rescale to fixed range (-100, 100);
-    curx *= 100.0f / abs(maxX - minX) / 2;
-    cury *= 100.0f / abs(maxY - minY) / 2;
-    curz *= 100.0f / abs(maxZ - minZ) / 2;
+    if (xrange != 0 && yrange != 0 && zrange != 0)
+    {
+      curx /= xrange;
+      cury /= yrange;
+      curz /= zrange;
+
+      //curx *= 1023;
+      //cury *= 1023;
+      //curz *= 1023;
+
+      //curx += 512;
+      //cury += 512;
+      //curz += 512;
+    }
   }
 
   // zeno out noise
@@ -191,11 +207,11 @@ void loop(void)
 
   /* Display the results (magnetic vector values are in micro-Tesla (uT)) */
   // print out the raw data for graph
-  Serial.print(x);
+  Serial.print(x * 1023 + 512);
   Serial.print(" ");
-  Serial.print(y);
+  Serial.print(y * 1023 + 512);
   Serial.print(" ");
-  Serial.print(z);
+  Serial.print(z * 1023 + 512);
   Serial.print("    ");
   Serial.print(avgHeading);
 

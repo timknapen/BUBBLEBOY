@@ -1,11 +1,23 @@
 // uncomment to use magnetic sensor (compass)
-#define USE_MAG_SENSOR
+//#define USE_COMPASS
 
 // uncomment to use DHT11
 #define USE_DHT11
 //#define FUCK_INTERRUPTS
 
-#ifdef USE_MAG_SENSOR
+// uncomment to use LIDAR
+#define USE_LIDAR
+
+#ifdef USE_LIDAR
+#define LIDAR_TXPIN 26 // white wire on TFMini RX
+#define LIDAR_RXPIN 27 // Green wire on TFMini TX
+#include "TFMini.h"
+TFMini tfmini;
+#endif
+float LIDAR_distance = 0;
+float LIDAR_strength = 0;
+
+#ifdef USE_COMPASS
 #include <Adafruit_HMC5883_U.h>
 #endif
 
@@ -90,11 +102,11 @@ uint8_t month, day, hour, minutes, second, hundredths;
 
 // COMPASS / MAG SENSOR
 /* Assign a unique ID to this sensor at the same time */
-#ifdef USE_MAG_SENSOR
+#ifdef USE_COMPASS
 #define HEADING_BUF_LEN 6
-Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
+Adafruit_HMC5883_Unified compass = Adafruit_HMC5883_Unified(12345);
 #endif
-bool bFoundMagSensor = false;
+bool bFoundCompass = false;
 float heading = 0; // our angle
 
 // AIR QUALITY SENSOR
@@ -106,10 +118,9 @@ int airQuality = 0;
 void setup()
 {
 
-  pinMode(AIRQPOWERPIN, OUTPUT);
-  digitalWrite(AIRQPOWERPIN, LOW);
-  pinMode(AIRQPIN, INPUT);
+  setupAirQualitySensor();
 
+  // send out a little boot signal
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
   for (int i = 0; i < 5; i++)
@@ -129,64 +140,14 @@ void setup()
   Serial.print(" and float is ");
   Serial.println(sizeof(float));
 
-#ifdef USE_DHT11
-  // WEATHER
-  dht.begin();
-  Serial.println("Setup DHT");
-#endif
-
-  // WIND
-  pinMode(ANEMOPIN, INPUT_PULLUP);
-
-
-  // SD
-  Serial.println("Initializing SD card...");
-  // see if the card is present and can be initialized:
-  if (!SD.begin(chipSelect))
-  {
-    Serial.println("Card failed, or not present");
-    // don't do anything more:
-    errorBlink();
-  }
-  else
-  {
-    Serial.println("card initialized.");
-    bFoundSD = true;
-  }
-
-  // MICROPHONE
-  pinMode(MICROPHONE_PIN, INPUT);
-  for (int i = 0; i < BUFSIZE; i++)
-  {
-    volBuffer[i] = 0;
-  }
-
-// MAG SENSOR
-#ifdef USE_MAG_SENSOR
-  if (!mag.begin())
-  {
-    Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
-  }
-  else
-  {
-    bFoundMagSensor = true;
-  }
-
-  /* Display some basic information on this sensor */
-  displayMagSensorDetails();
-  Serial.println("Set up fake HMC5883 compass");
-#endif
-
-  Serial.println("Starting bluetooth");
-  // BLE Initializing
-  ble_uart.setDeviceName("BBLEBOY"); /* 7 characters max! */
-  ble_uart.begin();
-
-  Serial.println("Done setting up bluetooth");
-
-  // GPS Initializing
-  gpsPort.begin(9600);
-  Serial.println("Done setting up GPS");
+  setupDHT11();
+  setupLIDAR();
+  setupWindSensor();
+  setupSDCard();
+  setupMicrophone();
+  setupCompass(); // MAG SENSOR/COMPASS
+  setupBLE();
+  setupGPS();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -226,16 +187,110 @@ void loop()
   }
 }
 
-#ifdef USE_MAG_SENSOR
 //-------------------------------------------------------------------------------------------------
-void displayMagSensorDetails(void)
+void setupAirQualitySensor()
 {
-  if (!bFoundMagSensor)
+  pinMode(AIRQPOWERPIN, OUTPUT);
+  digitalWrite(AIRQPOWERPIN, LOW);
+  pinMode(AIRQPIN, INPUT);
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupGPS()
+{
+  // GPS Initializing
+  gpsPort.begin(9600);
+  Serial.println("Done setting up GPS");
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupMicrophone()
+{
+  // MICROPHONE
+  pinMode(MICROPHONE_PIN, INPUT);
+  for (int i = 0; i < BUFSIZE; i++)
+  {
+    volBuffer[i] = 0;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupSDCard()
+{
+  Serial.println("Initializing SD card...");
+  // see if the card is present and can be initialized:
+  if (!SD.begin(chipSelect))
+  {
+    Serial.println("Card failed, or not present");
+    // don't do anything more:
+    errorBlink();
+  }
+  else
+  {
+    Serial.println("card initialized.");
+    bFoundSD = true;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupBLE()
+{
+  Serial.println("Starting bluetooth");
+  // BLE Initializing
+  ble_uart.setDeviceName("BBLEBOY"); /* 7 characters max! */
+  ble_uart.begin();
+  Serial.println("Done setting up bluetooth");
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupWindSensor()
+{
+  // WIND
+  pinMode(ANEMOPIN, INPUT_PULLUP);
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupDHT11()
+{
+#ifdef USE_DHT11
+  // WEATHER SENSORS
+  dht.begin();
+  Serial.println("Setup DHT");
+#else
+  Serial.println("Not compiled with DHT");
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupLIDAR()
+{
+#ifdef USE_LIDAR
+
+  // Initialize the data rate for the LIDAR serial port
+  Serial1.setTX(LIDAR_TXPIN);
+  Serial1.setRX(LIDAR_RXPIN);
+  Serial1.begin(TFMINI_BAUDRATE);
+
+  // Initialize the TF Mini sensor
+  tfmini.begin(&Serial1);
+
+  Serial.println("Done setting up TFmini LIDAR");
+#else
+  Serial.println("Not compiled with LIDAR");
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+void displayCompassDetails(void)
+{
+#ifdef USE_COMPASS
+
+  if (!bFoundCompass)
   {
     return;
   }
   sensor_t sensor;
-  mag.getSensor(&sensor);
+  compass.getSensor(&sensor);
   Serial.println("------------------------------------");
   Serial.print("Sensor:       ");
   Serial.println(sensor.name);
@@ -255,12 +310,35 @@ void displayMagSensorDetails(void)
   Serial.println("------------------------------------");
   Serial.println("");
   delay(100);
+#endif
+}
+
+//-------------------------------------------------------------------------------------------------
+void setupCompass()
+{
+#ifdef USE_COMPASS
+  if (!compass.begin())
+  {
+    Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
+  }
+  else
+  {
+    bFoundCompass = true;
+  }
+
+  /* Display some basic information on this sensor */
+  displayCompassDetails();
+  Serial.println("Set up fake HMC5883 compass");
+#else
+  Serial.println("Not compiled with compass");
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
 void readCompass()
 {
-  if (!bFoundMagSensor)
+#ifdef USE_COMPASS
+  if (!bFoundCompass)
   {
     return;
   }
@@ -307,7 +385,7 @@ Z -72.35 to 4.08
   {
     /* Get a new sensor event */
     sensors_event_t event;
-    mag.getEvent(&event);
+    compass.getEvent(&event);
 
     float curx = event.magnetic.x;
     float cury = event.magnetic.y;
@@ -373,8 +451,8 @@ Z -72.35 to 4.08
   Serial.print(" direction: ");
   Serial.print(heading);
   Serial.println("°");
-}
 #endif
+}
 
 // BLE ACI Event callback
 //-------------------------------------------------------------------------------------------------
@@ -559,14 +637,47 @@ void sensorLoop()
   // AIR Quality
   recordAirquality();
 
-#ifdef USE_MAG_SENSOR
   // read Compass/bFoundMagSensor
   readCompass();
-#endif
 
+  readLIDAR();
   logToSDCard();
 
   Serial.println("");
+}
+
+void readLIDAR()
+{
+#ifdef USE_LIDAR
+  unsigned long beginTime = millis();
+  bool bFirstReading = true;
+  while (millis() < beginTime + 500)
+  { // take measurements for 500ms
+    uint16_t dist = tfmini.getDistance();
+    uint16_t strength = tfmini.getRecentSignalStrength();
+
+    if (bFirstReading)
+    {
+      LIDAR_distance = (float)dist;
+      LIDAR_strength = (float)strength;
+    }
+    else
+    {
+      LIDAR_distance += ((float)dist - LIDAR_distance) / 10;
+      LIDAR_strength += ((float)strength - LIDAR_strength) / 10;
+    }
+
+    bFirstReading = false;
+    delay(25);
+  }
+
+  // Display the measurement
+  Serial.print("LIDAR measured distance: ");
+  Serial.print(LIDAR_distance);
+  Serial.print(" and strength: ");
+  Serial.print(LIDAR_strength);
+  Serial.println();
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -575,12 +686,13 @@ void recordAirquality()
   Serial.print("Recording air quality sensor... switching on for 30sec ... ");
   // unsigned long beginTime = millis();
   digitalWrite(AIRQPOWERPIN, HIGH); // switch on the sensor
-  delay(30000); // wait for half a minute
+  delay(30000);                     // wait for half a minute
   int numAirSamples = 256;
   int i = 0;
   float avgAirq = 0;
   Serial.print(" recording ... ");
-  while(i < numAirSamples){
+  while (i < numAirSamples)
+  {
     avgAirq += (float)analogRead(AIRQPIN);
     delay(20);
   }
@@ -799,7 +911,6 @@ void logToSDCard()
   // timeMsg, altitude, windSpeed, humidity, temperature, soundVolume,
   // latitude, longitude, elevation,
   // compass X, Y, Z
-  char gpsNumber[16];
   String dataString = "";
   dataString += String(timeMsg); // text version of the time
   dataString += ", ";
@@ -812,14 +923,14 @@ void logToSDCard()
   dataString += String(temperature);
   dataString += ", ";
   dataString += String(soundVolume);
+
+  char gpsString[16];
   dataString += ", ";
-  sprintf(gpsNumber, "%.6f", latitude);
-  dataString += gpsNumber;
-  //dataString += String(latitude);
+  sprintf(gpsString, "%.6f", latitude);
+  dataString += gpsString;
   dataString += ", ";
-  sprintf(gpsNumber, "%.6f", longitude);
-  dataString += gpsNumber;
-  //dataString += String(longitude);
+  sprintf(gpsString, "%.6f", longitude);
+  dataString += gpsString;
 
   dataString += ", ";
   dataString += String(elevation);
@@ -827,6 +938,10 @@ void logToSDCard()
   dataString += String(heading);
   dataString += ", ";
   dataString += String(airQuality);
+  dataString += ", ";
+  dataString += String(LIDAR_distance);
+  dataString += ", ";
+  dataString += String(LIDAR_strength);
 
   File dataFile;
   if (bFoundSD)

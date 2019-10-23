@@ -34,12 +34,12 @@
 #include <Adafruit_HMC5883_U.h>
 
 /* Assign a unique ID to this sensor at the same time */
-Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
+Adafruit_HMC5883_Unified compass = Adafruit_HMC5883_Unified(12345);
 
 void displaySensorDetails(void)
 {
   sensor_t sensor;
-  mag.getSensor(&sensor);
+  compass.getSensor(&sensor);
   Serial.println("------------------------------------");
   Serial.print  ("Sensor:       "); Serial.println(sensor.name);
   Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
@@ -77,7 +77,7 @@ void setup(void)
   Serial.println("HMC5883 Magnetometer Test");
   Serial.println("");
 
-  if (!mag.begin())
+  if (!compass.begin())
   {
     Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
     while (1);
@@ -91,7 +91,7 @@ void loop(void)
 {
   /* Get a new sensor event */
   sensors_event_t event;
-  mag.getEvent(&event);
+  compass.getEvent(&event);
 
   float tx = -1  + 2 * (event.magnetic.x - minx) / (maxx - minx);
   float ty = -1  + 2 * (event.magnetic.y - miny) / (maxy - miny);

@@ -43,14 +43,26 @@ void loop()
   int pos = 0; // position in sample buffer
   float avgVal = 0;
   int val;
+  int maxVal = 0;
+  int minVal = 0;
+  bool isFirstSample = true;
   while (pos < SAMPLEBUFFERSIZE)
   { // half a second
+    
     val = analogRead(SENSE_PIN);
+    if(isFirstSample){
+      maxVal = minVal = val;
+    }else{
+      maxVal = max(maxVal, val);
+      minVal = min(minVal, val);
+    }
     samplebuffer[pos] = val;
     avgVal += val;
     pos++;
   }
-  avgVal /= (float)SAMPLEBUFFERSIZE;
+  avgVal -= maxVal;
+  avgVal -= minVal;
+  avgVal /= (float)(SAMPLEBUFFERSIZE-2);
   Serial.print(val);
   Serial.print(" ");
   Serial.print((int)avgVal);

@@ -2,11 +2,14 @@
 //#define USE_COMPASS
 
 // uncomment to use DHT11
-#define USE_DHT11
+//#define USE_DHT11
 //#define FUCK_INTERRUPTS
 
 // uncomment to use LIDAR
-#define USE_LIDAR
+//#define USE_LIDAR
+
+// uncomment to user GPS
+// #define USE_GPS
 
 #ifdef USE_LIDAR
 #define LIDAR_TXPIN 26 // white wire on TFMini RX
@@ -31,7 +34,10 @@ float LIDAR_strength = 0;
 #include <SPI.h>
 #include <Wire.h>
 #include "Adafruit_BLE_UART.h"
+
+#ifdef USE_GPS
 #include <TinyGPS.h>
+#endif
 
 #define LED_PIN 33
 // not used for now, but could be used to attach a bright LED (with a
@@ -90,9 +96,11 @@ float altitude = 1.6;
 int measureState = -1;
 
 // GPS
+#ifdef USE_GPS
 TinyGPS gps;
 #define gpsPort Serial1
 char gpsBuf[32];  // for gps text printing
+#endif
 char timeMsg[32]; // holds the time of this measurement, from GPS
 float latitude, longitude, elevation;
 long long_latitude, long_longitude;
@@ -170,9 +178,9 @@ void loop()
 
   // keep alive messages
   unsigned long now = millis();
-  if (now > lastMessageTime + 5000)
+  if (now > lastMessageTime + 1000)
   {
-    int waitCycle = now / 5000;
+    int waitCycle = now / 1000;
     lastMessageTime = now;
     Serial.print(waitCycle);
     Serial.println(" waiting... ");
@@ -198,9 +206,14 @@ void setupAirQualitySensor()
 //-------------------------------------------------------------------------------------------------
 void setupGPS()
 {
+#ifdef USE_GPS
   // GPS Initializing
   gpsPort.begin(9600);
   Serial.println("Done setting up GPS");
+#else
+  Serial.println(" - Compiled without GPS");
+
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -257,7 +270,7 @@ void setupDHT11()
   dht.begin();
   Serial.println("Setup DHT");
 #else
-  Serial.println("Not compiled with DHT");
+  Serial.println(" - Not compiled with DHT");
 #endif
 }
 
@@ -276,7 +289,7 @@ void setupLIDAR()
 
   Serial.println("Done setting up TFmini LIDAR");
 #else
-  Serial.println("Not compiled with LIDAR");
+  Serial.println(" - Not compiled with LIDAR");
 #endif
 }
 
@@ -330,7 +343,7 @@ void setupCompass()
   displayCompassDetails();
   Serial.println("Set up fake HMC5883 compass");
 #else
-  Serial.println("Not compiled with compass");
+  Serial.println(" - Not compiled with compass");
 #endif
 }
 
@@ -624,10 +637,11 @@ void sensorLoop()
 
   // GPS
   readGPS();
+#ifdef USE_GPS
   char bleBuf[64];
   sprintf(bleBuf, "at %02d:%02d:%02d, alt %.2fm.\n", hour, minutes, second, altitude);
   ble_uart.write((uint8_t *)bleBuf, strlen(bleBuf));
-
+#endif
   // ANEMOMETER
   readWindSensor();
 
@@ -706,7 +720,7 @@ void recordAirquality()
 //-------------------------------------------------------------------------------------------------
 void readGPS()
 {
-
+#ifdef USE_GPS
   bool newData = false;
   unsigned long chars;
   unsigned short sentences, failed;
@@ -792,6 +806,7 @@ void readGPS()
   {
     Serial.println("** No characters received from GPS: check wiring **");
   }
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------

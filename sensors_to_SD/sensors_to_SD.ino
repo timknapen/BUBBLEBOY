@@ -2,18 +2,18 @@
 //#define USE_COMPASS
 
 // uncomment to use DHT11
-//#define USE_DHT11
+#define USE_DHT11
 //#define FUCK_INTERRUPTS
 
 // uncomment to use LIDAR
-//#define USE_LIDAR
+#define USE_LIDAR
 
 // uncomment to user GPS
-// #define USE_GPS
+#define USE_GPS
 
 #ifdef USE_LIDAR
-#define LIDAR_TXPIN 26 // white wire on TFMini RX
-#define LIDAR_RXPIN 27 // Green wire on TFMini TX
+#define LIDAR_TXPIN 8 //26 // white wire on TFMini RX
+#define LIDAR_RXPIN 7 //27 // Green wire on TFMini TX
 #include "TFMini.h"
 TFMini tfmini;
 #endif
@@ -99,7 +99,7 @@ int measureState = -1;
 #ifdef USE_GPS
 TinyGPS gps;
 #define gpsPort Serial1
-char gpsBuf[32];  // for gps text printing
+char gpsBuf[32]; // for gps text printing
 #endif
 char timeMsg[32]; // holds the time of this measurement, from GPS
 float latitude, longitude, elevation;
@@ -184,6 +184,7 @@ void loop()
     lastMessageTime = now;
     Serial.print(waitCycle);
     Serial.println(" waiting... ");
+
     // DEBUG
     /*
     if (waitCycle == 2) {
@@ -268,9 +269,9 @@ void setupDHT11()
 #ifdef USE_DHT11
   // WEATHER SENSORS
   dht.begin();
-  Serial.println("Setup DHT");
+  Serial.println("Done setting up DHT");
 #else
-  Serial.println(" - Not compiled with DHT");
+  Serial.println(" - Compiled without DHT");
 #endif
 }
 
@@ -280,16 +281,16 @@ void setupLIDAR()
 #ifdef USE_LIDAR
 
   // Initialize the data rate for the LIDAR serial port
-  Serial1.setTX(LIDAR_TXPIN);
-  Serial1.setRX(LIDAR_RXPIN);
-  Serial1.begin(TFMINI_BAUDRATE);
+  Serial3.setTX(LIDAR_TXPIN);
+  Serial3.setRX(LIDAR_RXPIN);
+  Serial3.begin(TFMINI_BAUDRATE);
 
   // Initialize the TF Mini sensor
-  tfmini.begin(&Serial1);
+  tfmini.begin(&Serial3);
 
   Serial.println("Done setting up TFmini LIDAR");
 #else
-  Serial.println(" - Not compiled with LIDAR");
+  Serial.println(" - Compiled without LIDAR");
 #endif
 }
 
@@ -341,9 +342,9 @@ void setupCompass()
 
   /* Display some basic information on this sensor */
   displayCompassDetails();
-  Serial.println("Set up fake HMC5883 compass");
+  Serial.println("Done setting up fake HMC5883 compass");
 #else
-  Serial.println(" - Not compiled with compass");
+  Serial.println(" - Compiled without compass");
 #endif
 }
 
@@ -614,6 +615,20 @@ void sensorLoop()
   humidity = -1;
   temperature = -1;
 
+  // GPS
+  readGPS();
+#ifdef USE_GPS
+  char bleBuf[64];
+  sprintf(bleBuf, "at %02d:%02d:%02d, alt %.2fm.\n", hour, minutes, second, altitude);
+  ble_uart.write((uint8_t *)bleBuf, strlen(bleBuf));
+#endif
+
+  readWindSensor();
+  recordMicrophoneVolume();
+  readCompass();
+  readLIDAR();
+  recordAirquality();
+
 #ifdef USE_DHT11
   humidity = dht.readHumidity();
   temperature = dht.readTemperature();
@@ -634,27 +649,6 @@ void sensorLoop()
     Serial.println("%");
   }
 #endif
-
-  // GPS
-  readGPS();
-#ifdef USE_GPS
-  char bleBuf[64];
-  sprintf(bleBuf, "at %02d:%02d:%02d, alt %.2fm.\n", hour, minutes, second, altitude);
-  ble_uart.write((uint8_t *)bleBuf, strlen(bleBuf));
-#endif
-  // ANEMOMETER
-  readWindSensor();
-
-  // SOUND recording
-  recordMicrophoneVolume();
-
-  // AIR Quality
-  recordAirquality();
-
-  // read Compass/bFoundMagSensor
-  readCompass();
-
-  readLIDAR();
   logToSDCard();
 
   Serial.println("");
@@ -708,7 +702,8 @@ void recordAirquality()
   while (i < numAirSamples)
   {
     avgAirq += (float)analogRead(AIRQPIN);
-    delay(20);
+    i++;
+    delay(10);
   }
   avgAirq /= (float)numAirSamples;
   airQuality = avgAirq;

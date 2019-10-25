@@ -37,7 +37,7 @@ void setup(void)
 
   uart.setRXcallback(rxCallback);
   uart.setACIcallback(aciCallback);
-  uart.setDeviceName("HOMEBOY"); /* 7 characters max! */
+  uart.setDeviceName("DUMB BBLE BOY"); /* 7 characters max! */
   uart.begin();
 }
 

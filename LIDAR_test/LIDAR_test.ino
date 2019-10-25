@@ -61,7 +61,7 @@ void loop()
 
   // Display the measurement
   Serial.print(dist);
-  //Serial.print(" ");
+  Serial.print(" ");
   Serial.print(strength);
   Serial.println();
 
